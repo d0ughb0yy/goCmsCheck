@@ -1,0 +1,21 @@
+Report for https://www.armourinfosec.test -- 2026-03-10 14:23:00
+
+robots.txt:
+-------------
+No robots.txt found
+
+Common Checks:
+----------------
+[+] Found endpoint: /wp-admin [status 200]
+
+Headers returned for request https://www.armourinfosec.test:
+---------------------
+Date: Tue, 10 Mar 2026 13:22:58 GMT
+Expires: Thu, 19 Nov 1981 08:52:00 GMT
+Cache-Control: no-store, no-cache, must-revalidate
+Content-Type: text/html; charset=UTF-8
+X-Powered-By: PHP/7.3.14
+Set-Cookie: PHPSESSID=jma4ri5kqg67qmb14uk1so6hpl; path=/
+Link: <https://www.armourinfosec.test/index.php?rest_route=/>; rel="https://api.w.org/"
+Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.2k-fips PHP/7.3.14
+Pragma: no-cache
