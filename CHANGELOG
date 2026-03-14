@@ -1,0 +1,119 @@
+# GoCmsCheck - Change Log
+
+## Overview
+GoCmsCheck is a CMS security scanner that supports WordPress and Drupal. This file documents all changes, features, and implementations for future reference.
+
+---
+
+## v1.0.0 (Current)
+
+### Features Implemented
+
+**WordPress Scanning:**
+- Version detection (meta tags, CSS paths, HTML)
+- Plugin detection from HTML source
+- Theme detection from HTML paths
+- Login endpoint verification (`/wp-login.php`, `/wp-admin`)
+- XML-RPC analysis and method listing
+- Pingback vulnerability testing
+- WPVulnerability API integration with caching
+
+**Drupal Scanning:**
+- Version detection (meta tags, CHANGELOG.txt)
+- Module and theme detection from HTML
+- Login/admin endpoint checks
+- Node enumeration (1-100) at 5 req/s
+- User enumeration (1-100) at 5 req/s
+- Configuration file checks (`.yml` files)
+- OSV.dev API integration with caching
+
+**Performance:**
+- Global rate limiting at 5 requests/second
+- In-memory cache for vulnerability API responses
+- Node enumeration limited to 100 nodes for performance
+- User enumeration limited to 100 users for performance
+- Total max scan time: ~2 minutes
+
+**Color Output:**
+- Uses `github.com/fatih/color` v1.18.0 for colored terminal output
+- **Stdout**: Colored output with ANSI codes
+  - Bold cyan for section headers
+  - Bold for labels and prefixes (e.g., `[+] Found endpoint:`, `Version:`, `[+] Plugins found:`)
+  - Normal text for data/content
+- **File Output**: Plain text (ANSI codes stripped via `stripANSICodes()`)
+
+**Output & Reporting:**
+- **No default output file** - use `--output <filename>` to save report
+
+### Command Line Flags
+- `--url <URL>`: Target URL (required)
+- `--cms <wordpress|drupal>`: CMS type (optional)
+- `--output <filename>`: Save report to file (optional)
+- `--all-plugins`: Scan all plugins (default: top 10)
+- `--all-modules`: Scan all modules (default: top 10)
+- `--server <url>`: Pingback test server (WordPress only)
+- `--help`: Show usage information
+
+### Usage Examples
+```bash
+# WordPress scan (stdout only, colored)
+./goCmsCheck --url example.com --cms wordpress
+
+# WordPress scan with file output (plain text)
+./goCmsCheck --url example.com --cms wordpress --output wp_report.txt
+
+# Drupal scan (stdout only, colored)
+./goCmsCheck --url example.com --cms drupal
+
+# Drupal scan with file output (plain text)
+./goCmsCheck --url example.com --cms drupal --output drupal_report.txt
+
+# Full module scan
+./goCmsCheck --url example.com --cms drupal --all-modules --output report.txt
+```
+
+### Files Modified/Created
+- `cmd/goCmsCheck/main.go` - Main entry point, flag handling
+- `internal/scanner/httpclient.go` - HTTP client with rate limiting
+- `internal/scanner/wordpress.go` - WordPress scanning logic
+- `internal/scanner/drupal.go` - Drupal scanning logic
+- `internal/report/report.go` - Report generation with fatih/color output
+- `README.md` - Project documentation with examples
+- `CHANGELOG` - This change log
+- `go.mod` - Added github.com/fatih/color v1.18.0 dependency
+- `go.sum` - Updated with fatih/color v1.18.0 and transitive dependencies
+
+### Testing
+- Tested against WordPress target: `https://www.armourinfosec.test`
+- Tested against Drupal target: `http://drupal.test`
+- Verified stdout color output with fatih/color
+- Verified file output is plain text (no ANSI codes)
+- Verified no default file is created without `--output` flag
+- Verified go.mod and go.sum updated with fatih/color v1.18.0
+- Verified dependency chain: fatih/color → go-colorable → go-isatty → go-sys
+- Verified --output flag is optional (no default value)
+
+---
+
+## Planned Enhancements
+- More configuration file checks for Drupal
+- Export formats (JSON, XML)
+- Multi-threaded scanning for faster enumeration
+- More detailed vulnerability information from OSV API
+- Drupal 8+ version detection improvements
+
+---
+
+## Quick Reference
+
+**Build:** `go build -o goCmsCheck ./cmd/goCmsCheck`
+
+**Test WordPress:** `./goCmsCheck --url example.com --cms wordpress --output wp_report.txt`
+
+**Test Drupal:** `./goCmsCheck --url http://drupal.test --cms drupal --output drupal_report.txt`
+
+**Color scheme:** Bold cyan (section headers), bold (labels), normal (data)
+**Color library:** github.com/fatih/color v1.18.0 (go-colorable, go-isatty, golang.org/x/sys)
+**Rate limiting:** 5 requests/second global limit
+**Default output:** None (stdout only, use --output to save to file)
+**Output modes:** Stdout (colored) | File (plain text, ANSI codes stripped)

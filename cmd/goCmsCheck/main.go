@@ -16,7 +16,9 @@ func main() {
 	url := flag.String("url", "", "URL or hostname to scan (required)")
 	cms := flag.String("cms", "", "CMS type: wordpress or drupal (optional)")
 	server := flag.String("server", "", "User-controlled server for pingback test (optional, only for --cms wordpress)")
-	output := flag.String("output", "goCmsChecker_output.txt", "Output file path (default: goCmsChecker_output.txt)")
+	output := flag.String("output", "", "Output file path (optional, if not provided only stdout)")
+	allPlugins := flag.Bool("all-plugins", false, "Scan all plugins found (default: scan top 10)")
+	allModules := flag.Bool("all-modules", false, "Scan all modules found (default: scan top 10)")
 	help := flag.Bool("help", false, "Show usage information")
 
 	flag.Parse()
@@ -55,13 +57,15 @@ func main() {
 	if *cms != "" {
 		fmt.Printf("CMS: %s\n", *cms)
 	}
-	fmt.Printf("Output: %s\n", *output)
+	if *output != "" {
+		fmt.Printf("Output: %s\n", *output)
+	}
 
 	// Create HTTP client with rate limiting
 	httpClient := scanner.NewHTTPClient()
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*60*time.Second)
 	defer cancel()
 
 	// Perform common recon checks (always run)
@@ -71,23 +75,38 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error during common checks: %v\n", err)
 	}
 
+	var wordpressChecks *scanner.WordPressChecks
+	var drupalChecks *scanner.DrupalChecks
+	// Based on CMS flag, perform CMS-specific scans
+	switch *cms {
+	case "wordpress":
+		fmt.Println("\nPerforming WordPress scanning...")
+		wordpressChecks, err = httpClient.ScanWordPress(ctx, processedURL, *server, *allPlugins)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error during WordPress scan: %v\n", err)
+		}
+	case "drupal":
+		fmt.Println("\nPerforming Drupal scanning...")
+		drupalChecks, err = httpClient.ScanDrupal(ctx, processedURL, *allModules)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error during Drupal scan: %v\n", err)
+		}
+	default:
+		fmt.Println("\nNo CMS specified - common checks only")
+	}
+
 	// Generate report
-	reportInstance := report.NewReport(processedURL, *output, commonChecks)
+	reportInstance := report.NewReport(processedURL, *output, commonChecks, wordpressChecks, drupalChecks)
 	reportText := reportInstance.Generate()
 
-	// Output report (stdout and file)
+	// Output report (stdout and file if output specified)
 	if err := reportInstance.Output(reportText); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing report: %v\n", err)
 	}
 
-	// Based on CMS flag, perform CMS-specific scans
-	switch *cms {
-	case "wordpress":
-		fmt.Println("\nWordPress scanning logic will be added in Phase 3")
-	case "drupal":
-		fmt.Println("\nDrupal scanning logic will be added in Phase 4")
-	default:
-		fmt.Println("\nNo CMS specified - common checks only")
+	// Print file save message if output was specified
+	if *output != "" {
+		fmt.Printf("\nReport saved to: %s\n", *output)
 	}
 }
 
@@ -102,7 +121,8 @@ func showUsage() {
 	fmt.Println("Examples:")
 	fmt.Println("  goCmsCheck --url example.com")
 	fmt.Println("  goCmsCheck --url https://example.com --cms wordpress")
-	fmt.Println("  goCmsCheck --url example.com --cms drupal --output scan_report.txt")
+	fmt.Println("  goCmsCheck --url example.com --cms drupal --output report.txt")
+	fmt.Println("  goCmsCheck --url example.com --cms drupal --all-modules --output report.txt")
 	fmt.Println("  goCmsCheck --url example.com --cms wordpress --server https://myserver.com/pingback")
 }
 
