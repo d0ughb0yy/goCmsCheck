@@ -169,6 +169,11 @@ func (r *Report) Generate() string {
 			if r.WordPressChecks.PingbackCheck.Error != "" {
 				builder.WriteString(fmt.Sprintf("[!] Pingback check: %s\n", r.WordPressChecks.PingbackCheck.Error))
 			}
+		} else if r.WordPressChecks.PingbackCheck.Error != "" {
+			builder.WriteString(colorBold(""))
+			builder.WriteString("[-] Pingback disabled")
+			builder.WriteString(colorReset(""))
+			builder.WriteString(fmt.Sprintf(": %s\n", r.WordPressChecks.PingbackCheck.Error))
 		}
 
 		// Theme

@@ -5,7 +5,33 @@ GoCmsCheck is a CMS security scanner that supports WordPress and Drupal. This fi
 
 ---
 
-## v1.0.0 (Current)
+## v1.0.1 (Current)
+
+### New Features
+
+**WordPress Scanning:**
+- **Bundled plugin list**: 100 common WordPress plugin slugs embedded at compile time via `//go:embed`
+- **Plugin scanning workflow**: Check bundled list first against WPVulnerability API, then dynamically parse HTML for additional plugins not already found
+- **Deduplication**: Plugins found in the bundled list are not re-checked during HTML parsing
+
+### Bug Fixes
+
+**HTTP Client:**
+- `DoRequest` now accepts an `io.Reader` body parameter, enabling proper POST requests with payloads
+- `Post()` method fixed to actually send the request body (previously sent `nil`)
+- Removed duplicated rate-limiting/retry logic from `Post()` (now delegates to `DoRequest`)
+
+**WordPress Pingback:**
+- `PerformPingbackCheck`: Fixed bug where XML-RPC pingback body was never sent to the server
+- `CheckXmlRpc`: Fixed bug where XML-RPC method list request body was never sent to the server
+- Removed unused `http.Request` variables that were constructed but discarded
+- Pingback check now only runs when XML-RPC is enabled (no misleading output when XML-RPC is blocked)
+- Non-200 responses from `xmlrpc.php` now report meaningful errors (e.g., "XML-RPC blocked (HTTP 405)")
+- Report shows `[-] Pingback disabled: <reason>` when pingback is blocked instead of showing nothing
+
+---
+
+## v1.0.0
 
 ### Features Implemented
 
@@ -73,13 +99,15 @@ GoCmsCheck is a CMS security scanner that supports WordPress and Drupal. This fi
 ```
 
 ### Files Modified/Created
+- `internal/scanner/plugins.txt` - **New**: 100 common WordPress plugin slugs
+- `internal/scanner/wordpress.go` - Added `//go:embed`, `LoadBundledPlugins()`, updated plugin scanning workflow; fixed pingback/XML-RPC body sending; added XML-RPC guard for pingback
+- `internal/scanner/httpclient.go` - Modified `DoRequest` signature to accept body; simplified `Post` method
+- `internal/report/report.go` - Added pingback disabled feedback output
+- `CHANGELOG` - Updated with new features and bug fixes
 - `cmd/goCmsCheck/main.go` - Main entry point, flag handling
-- `internal/scanner/httpclient.go` - HTTP client with rate limiting
-- `internal/scanner/wordpress.go` - WordPress scanning logic
 - `internal/scanner/drupal.go` - Drupal scanning logic
 - `internal/report/report.go` - Report generation with fatih/color output
 - `README.md` - Project documentation with examples
-- `CHANGELOG` - This change log
 - `go.mod` - Added github.com/fatih/color v1.18.0 dependency
 - `go.sum` - Updated with fatih/color v1.18.0 and transitive dependencies
 

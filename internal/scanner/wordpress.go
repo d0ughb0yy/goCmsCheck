@@ -2,10 +2,10 @@ package scanner
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -57,6 +57,21 @@ type PingbackResult struct {
 // wpVulnerabilityCache stores API responses to avoid redundant requests
 var wpVulnerabilityCache = make(map[string][]Vulnerability)
 
+//go:embed plugins.txt
+var bundledPlugins string
+
+// LoadBundledPlugins parses the embedded plugins.txt into a slice of slugs
+func LoadBundledPlugins() []string {
+	var plugins []string
+	for _, line := range strings.Split(bundledPlugins, "\n") {
+		slug := strings.TrimSpace(line)
+		if slug != "" {
+			plugins = append(plugins, slug)
+		}
+	}
+	return plugins
+}
+
 // ScanWordPress performs all WordPress-specific scans
 func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverFlag string, scanAllPlugins bool) (*WordPressChecks, error) {
 	checks := &WordPressChecks{}
@@ -81,12 +96,32 @@ func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverF
 		checks.XmlRpcMethods = xmlRpcResult.Methods
 	}
 
-	// 4. Check Pingback (if server flag provided)
-	if serverFlag != "" {
+	// 4. Check Pingback (if server flag provided and XML-RPC is enabled)
+	if serverFlag != "" && checks.XmlRpcEnabled {
 		checks.PingbackCheck = hc.PerformPingbackCheck(ctx, baseURL, serverFlag)
 	}
 
-	// 5. Extract Theme and Plugins from HTML
+	// 5. Check bundled plugin list against WPVulnerability API
+	checkedSlugs := make(map[string]bool)
+	bundled := LoadBundledPlugins()
+
+	for _, slug := range bundled {
+		checkedSlugs[slug] = true
+		plugin := Plugin{
+			Name: slug,
+			Slug: slug,
+		}
+		if vulns, err := hc.CheckWpvulnerability(ctx, "plugin", slug); err == nil && len(vulns) > 0 {
+			plugin.Vulnerability = true
+			for _, v := range vulns {
+				plugin.CVEs = append(plugin.CVEs, v.CVE)
+			}
+			checks.Vulnerabilities = append(checks.Vulnerabilities, vulns...)
+		}
+		checks.Plugins = append(checks.Plugins, plugin)
+	}
+
+	// 6. Fetch homepage HTML for theme and dynamic plugin parsing
 	homeHTML, err := hc.FetchHomePageHTML(ctx, baseURL)
 	if err == nil {
 		// Extract and check theme
@@ -103,17 +138,25 @@ func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverF
 			}
 		}
 
-		// Extract and check plugins
-		pluginSlugs := ExtractPlugins(homeHTML)
+		// Dynamically extract plugins from HTML, skip already-checked
+		htmlSlugs := ExtractPlugins(homeHTML)
 		limit := 10
 		if scanAllPlugins {
-			limit = len(pluginSlugs)
-		}
-		if len(pluginSlugs) > limit {
-			pluginSlugs = pluginSlugs[:limit]
+			limit = len(htmlSlugs)
 		}
 
-		for _, slug := range pluginSlugs {
+		var newSlugs []string
+		for _, slug := range htmlSlugs {
+			if !checkedSlugs[slug] {
+				newSlugs = append(newSlugs, slug)
+				checkedSlugs[slug] = true
+			}
+		}
+		if len(newSlugs) > limit {
+			newSlugs = newSlugs[:limit]
+		}
+
+		for _, slug := range newSlugs {
 			plugin := Plugin{
 				Name: slug,
 				Slug: slug,
@@ -305,15 +348,7 @@ func (hc *HTTPClient) CheckXmlRpc(ctx context.Context, baseURL string) (struct {
 <params></params>
 </methodCall>`
 
-	req, err := http.NewRequestWithContext(ctx, "POST", xmlRpcURL, strings.NewReader(body))
-	if err != nil {
-		return result, err
-	}
-	req.Header.Set("Content-Type", "text/xml")
-
-	// Use the underlying client to bypass rate limiter for this specific check if needed,
-	// but here we use hc.DoRequest to respect rate limits.
-	resp2, err := hc.DoRequest(ctx, "POST", xmlRpcURL)
+	resp2, err := hc.DoRequest(ctx, "POST", xmlRpcURL, strings.NewReader(body))
 	if err != nil {
 		// If POST fails, just return enabled status
 		return result, nil
@@ -360,14 +395,7 @@ func (hc *HTTPClient) PerformPingbackCheck(ctx context.Context, baseURL string, 
 </params>
 </methodCall>`, serverURL, strings.TrimSuffix(baseURL, "/"))
 
-	req, err := http.NewRequestWithContext(ctx, "POST", xmlRpcURL, strings.NewReader(body))
-	if err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	req.Header.Set("Content-Type", "text/xml")
-
-	resp, err := hc.DoRequest(ctx, "POST", xmlRpcURL)
+	resp, err := hc.DoRequest(ctx, "POST", xmlRpcURL, strings.NewReader(body))
 	if err != nil {
 		result.Error = err.Error()
 		return result
@@ -383,6 +411,8 @@ func (hc *HTTPClient) PerformPingbackCheck(ctx context.Context, baseURL string, 
 		} else {
 			result.Error = "Pingback request sent, check server logs"
 		}
+	} else {
+		result.Error = fmt.Sprintf("XML-RPC blocked (HTTP %d)", resp.StatusCode)
 	}
 
 	return result
