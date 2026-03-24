@@ -14,8 +14,7 @@ import (
 func main() {
 	// Define flags
 	url := flag.String("url", "", "URL or hostname to scan (required)")
-	cms := flag.String("cms", "", "CMS type: wordpress or drupal (optional)")
-	server := flag.String("server", "", "User-controlled server for pingback test (optional, only for --cms wordpress)")
+	server := flag.String("server", "", "User-controlled server for pingback test (optional, WordPress only)")
 	output := flag.String("output", "", "Output file path (optional, if not provided only stdout)")
 	allPlugins := flag.Bool("all-plugins", false, "Scan all plugins found (default: scan top 10)")
 	allModules := flag.Bool("all-modules", false, "Scan all modules found (default: scan top 10)")
@@ -36,27 +35,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Validate CMS flag if provided
-	if *cms != "" && *cms != "wordpress" && *cms != "drupal" {
-		fmt.Fprintln(os.Stderr, "Error: --cms must be 'wordpress' or 'drupal'")
-		showUsage()
-		os.Exit(1)
-	}
-
-	// Validate server flag usage
-	if *server != "" && *cms != "wordpress" {
-		fmt.Fprintln(os.Stderr, "Error: --server flag is only valid with --cms wordpress")
-		showUsage()
-		os.Exit(1)
-	}
-
 	// Process URL - add https:// if needed
 	processedURL := processURL(*url)
 
 	fmt.Printf("Scanning: %s\n", processedURL)
-	if *cms != "" {
-		fmt.Printf("CMS: %s\n", *cms)
-	}
 	if *output != "" {
 		fmt.Printf("Output: %s\n", *output)
 	}
@@ -68,8 +50,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*60*time.Second)
 	defer cancel()
 
-	// Perform common recon checks (always run)
-	fmt.Println("\nPerforming common recon checks...")
+	// Perform common recon checks (always run, includes CMS detection)
+	fmt.Println("Performing common recon checks...")
 	commonChecks, err := httpClient.RunCommonChecks(ctx, processedURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error during common checks: %v\n", err)
@@ -77,25 +59,28 @@ func main() {
 
 	var wordpressChecks *scanner.WordPressChecks
 	var drupalChecks *scanner.DrupalChecks
-	// Based on CMS flag, perform CMS-specific scans
-	switch *cms {
+	// Based on detected CMS, perform CMS-specific scans
+	switch commonChecks.CMSDetected {
 	case "wordpress":
-		fmt.Println("\nPerforming WordPress scanning...")
-		wordpressChecks, err = httpClient.ScanWordPress(ctx, processedURL, *server, *allPlugins)
+		fmt.Println("CMS detected: WordPress")
+		fmt.Println("Performing WordPress scanning...")
+		wordpressChecks, err = httpClient.ScanWordPress(ctx, processedURL, *server, *allPlugins, commonChecks.HomepageHTML)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error during WordPress scan: %v\n", err)
 		}
 	case "drupal":
-		fmt.Println("\nPerforming Drupal scanning...")
-		drupalChecks, err = httpClient.ScanDrupal(ctx, processedURL, *allModules)
+		fmt.Println("CMS detected: Drupal")
+		fmt.Println("Performing Drupal scanning...")
+		drupalChecks, err = httpClient.ScanDrupal(ctx, processedURL, *allModules, commonChecks.HomepageHTML)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error during Drupal scan: %v\n", err)
 		}
 	default:
-		fmt.Println("\nNo CMS specified - common checks only")
+		fmt.Println("No CMS detected - common checks only")
 	}
 
 	// Generate report
+	fmt.Println()
 	reportInstance := report.NewReport(processedURL, *output, commonChecks, wordpressChecks, drupalChecks)
 	reportText := reportInstance.Generate()
 
@@ -120,10 +105,10 @@ func showUsage() {
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  goCmsCheck --url example.com")
-	fmt.Println("  goCmsCheck --url https://example.com --cms wordpress")
-	fmt.Println("  goCmsCheck --url example.com --cms drupal --output report.txt")
-	fmt.Println("  goCmsCheck --url example.com --cms drupal --all-modules --output report.txt")
-	fmt.Println("  goCmsCheck --url example.com --cms wordpress --server https://myserver.com/pingback")
+	fmt.Println("  goCmsCheck --url example.com --output report.txt")
+	fmt.Println("  goCmsCheck --url example.com --all-plugins --output report.txt")
+	fmt.Println("  goCmsCheck --url example.com --all-modules --output report.txt")
+	fmt.Println("  goCmsCheck --url example.com --server https://myserver.com/pingback")
 }
 
 func processURL(url string) string {

@@ -36,7 +36,7 @@ type Module struct {
 var osvVulnerabilityCache = make(map[string][]Vulnerability)
 
 // ScanDrupal performs all Drupal-specific scans
-func (hc *HTTPClient) ScanDrupal(ctx context.Context, baseURL string, scanAllModules bool) (*DrupalChecks, error) {
+func (hc *HTTPClient) ScanDrupal(ctx context.Context, baseURL string, scanAllModules bool, homeHTML string) (*DrupalChecks, error) {
 	checks := &DrupalChecks{
 		ConfigFiles: make(map[string]string),
 	}
@@ -60,9 +60,8 @@ func (hc *HTTPClient) ScanDrupal(ctx context.Context, baseURL string, scanAllMod
 	checks.Nodes = hc.EnumerateNodes(ctx, baseURL)
 	checks.Users = hc.EnumerateUsers(ctx, baseURL)
 
-	// 4. Extract Theme and Modules from HTML
-	homeHTML, err := hc.FetchHomePageHTML(ctx, baseURL)
-	if err == nil {
+	// 4. Extract Theme and Modules from cached HTML
+	if homeHTML != "" {
 		// Extract and check theme
 		themeSlug := ExtractDrupalTheme(homeHTML)
 		if themeSlug != "" {
@@ -74,7 +73,6 @@ func (hc *HTTPClient) ScanDrupal(ctx context.Context, baseURL string, scanAllMod
 				for _, v := range vulns {
 					checks.Theme.CVEs = append(checks.Theme.CVEs, v.CVE)
 				}
-				checks.Vulnerabilities = append(checks.Vulnerabilities, vulns...)
 			}
 		}
 
@@ -99,7 +97,6 @@ func (hc *HTTPClient) ScanDrupal(ctx context.Context, baseURL string, scanAllMod
 				for _, v := range vulns {
 					module.CVEs = append(module.CVEs, v.CVE)
 				}
-				checks.Vulnerabilities = append(checks.Vulnerabilities, vulns...)
 			}
 			checks.Modules = append(checks.Modules, module)
 		}
@@ -187,9 +184,11 @@ func (hc *HTTPClient) CheckOsvVulnerability(ctx context.Context, component strin
 
 	// Map component to actual package name
 	var packageName string
+	var version string
 	switch component {
 	case "drupal/drupal":
 		packageName = "drupal/drupal"
+		version = slug
 	case "drupal/module":
 		packageName = "drupal/" + slug
 	case "drupal/theme":
@@ -205,7 +204,9 @@ func (hc *HTTPClient) CheckOsvVulnerability(ctx context.Context, component strin
 			"name":      packageName,
 			"ecosystem": "Packagist:https://packages.drupal.org/8",
 		},
-		"version": slug,
+	}
+	if version != "" {
+		payload["version"] = version
 	}
 
 	jsonPayload, err := json.Marshal(payload)
@@ -255,13 +256,28 @@ func (hc *HTTPClient) CheckOsvVulnerability(ctx context.Context, component strin
 					}
 				}
 
+				// Fallback to OSV advisory ID if no CVEs found
+				if len(cves) == 0 {
+					if id := getString(vulnMap, "id"); id != "" {
+						cves = append(cves, id)
+					}
+				}
+
 				// Create vulnerability entries for each CVE
 				for _, cve := range cves {
+					title := getString(vulnMap, "summary")
+					if title == "" {
+						title = getString(vulnMap, "details")
+					}
+					// Truncate long titles
+					if len(title) > 80 {
+						title = title[:77] + "..."
+					}
 					vuln := Vulnerability{
 						CVE:      cve,
 						Severity: "unknown",
 						FixedIn:  getString(vulnMap, "id"),
-						Title:    getString(vulnMap, "summary"),
+						Title:    title,
 					}
 					vulnerabilities = append(vulnerabilities, vuln)
 				}

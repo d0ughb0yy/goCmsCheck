@@ -43,28 +43,27 @@ go build -o goCmsCheck ./cmd/goCmsCheck
 
 ## Usage
 
+The tool automatically detects the CMS type (WordPress or Drupal) from the target website and runs the appropriate scans.
+
 ### Basic Usage
 ```bash
-# Common checks only
+# Auto-detect CMS and run appropriate scans
 ./goCmsCheck --url example.com
 
-# WordPress scan
-./goCmsCheck --url example.com --cms wordpress
-
-# Drupal scan
-./goCmsCheck --url example.com --cms drupal
+# Common checks only (if no CMS detected)
+./goCmsCheck --url example.com
 ```
 
-### WordPress Advanced Options
+### WordPress Options
 ```bash
 # Scan all plugins found (default: top 10)
-./goCmsCheck --url example.com --cms wordpress --all-plugins
+./goCmsCheck --url example.com --all-plugins
 
 # Pingback vulnerability check
-./goCmsCheck --url example.com --cms wordpress --server https://your-server.com/pingback
+./goCmsCheck --url example.com --server https://your-server.com/pingback
 
 # Custom output file
-./goCmsCheck --url example.com --cms wordpress --output report.txt
+./goCmsCheck --url example.com --output report.txt
 ```
 
 ## API Integration
@@ -107,22 +106,24 @@ goCmsCheck/
 ```
 
 ### Key Design Decisions
-1. **Rate Limiting**: Global 5 req/s limit to respect API and target servers
-2. **Caching**: In-memory cache for WPVulnerability API and OSV.dev API responses
-3. **Dynamic Parsing**: Extracts plugins/themes from HTML rather than hardcoding
-4. **Plugin Limit**: Default top 10 plugins to avoid excessive scanning
-5. **Module Limit**: Default top 10 modules for Drupal scanning
+1. **Auto-Detection**: CMS type is automatically detected from homepage HTML (meta generator tags, path patterns, endpoint probes)
+2. **Rate Limiting**: Global 5 req/s limit to respect API and target servers
+3. **Caching**: In-memory cache for WPVulnerability API and OSV.dev API responses
+4. **Dynamic Parsing**: Extracts plugins/themes from HTML rather than hardcoding
+5. **Plugin Limit**: Default top 10 plugins to avoid excessive scanning
+6. **Module Limit**: Default top 10 modules for Drupal scanning
+7. **Homepage HTML Caching**: Homepage HTML fetched once during common checks and reused for CMS-specific scans
 
 ## Examples
 
-### Example 1: Basic WordPress Scan (stdout only, colored output)
+### Example 1: Basic Scan (auto-detect CMS, stdout only, colored output)
 ```bash
-./goCmsCheck --url example.com --cms wordpress
+./goCmsCheck --url example.com
 ```
 
 ### Example 2: Save to File (plain text)
 ```bash
-./goCmsCheck --url example.com --cms wordpress --output wp_report.txt
+./goCmsCheck --url example.com --output report.txt
 ```
 
 **Note**: With `--output`, the report is saved to file as plain text
@@ -136,6 +137,8 @@ robots.txt:
 Common Checks:
 ----------------
 [+] Found endpoint: /.git [status 403]
+
+CMS detected: WordPress
 
 WordPress Scan:
 --------------------
@@ -154,32 +157,17 @@ Version: 6.6.1
 
 ### Example 3: Full Plugin Scan
 ```bash
-./goCmsCheck --url example.com --cms wordpress --all-plugins
+./goCmsCheck --url example.com --all-plugins
 ```
 
 ### Example 4: Pingback Check (stdout only)
 ```bash
-./goCmsCheck --url example.com --cms wordpress --server https://myserver.com/pingback
+./goCmsCheck --url example.com --server https://myserver.com/pingback
 ```
 
-### Example 5: Drupal Scan (stdout only, colored output)
+### Example 5: Full Drupal Module Scan with File Output
 ```bash
-./goCmsCheck --url example.com --cms drupal
-```
-
-### Example 6: Drupal Scan with File Output (plain text)
-```bash
-./goCmsCheck --url example.com --cms drupal --output drupal_report.txt
-```
-
-### Example 7: Full Drupal Module Scan with File Output
-```bash
-./goCmsCheck --url example.com --cms drupal --all-modules --output drupal_full_report.txt
-```
-
-### Example 8: Pingback Check with File Output
-```bash
-./goCmsCheck --url example.com --cms wordpress --server https://myserver.com/pingback --output pingback_report.txt
+./goCmsCheck --url example.com --all-modules --output drupal_full_report.txt
 ```
 
 ## Limitations
@@ -187,7 +175,3 @@ Version: 6.6.1
 1. **API Dependency**: Vulnerability data relies on WPVulnerability API and OSV.dev API availability
 2. **Dynamic Parsing**: Plugin/theme detection depends on HTML structure; some may not be detected
 3. **Configuration Files**: Drupal config file checks may not work on all installations
-
-## To Do
-
-1. **Add plugin list**: Add most common plugins so plugin and theme detection do not rely only on dynamic parsing of HTML

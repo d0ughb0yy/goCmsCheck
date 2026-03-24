@@ -5,7 +5,74 @@ GoCmsCheck is a CMS security scanner that supports WordPress and Drupal. This fi
 
 ---
 
-## v1.0.1 (Current)
+## v1.1.0 (Current)
+
+### New Features
+
+**CMS Auto-Detection:**
+- Removed `--cms` flag — tool now auto-detects WordPress or Drupal automatically
+- Detection hierarchy: meta generator tags (near-definitive) → HTML path patterns (`/wp-content/`, `/sites/*/modules/`) → endpoint probe (`/wp-login.php`)
+- WordPress priority on ambiguous matches (both CMS signals present)
+
+**Homepage HTML Caching:**
+- Homepage HTML fetched once during common checks and cached in `CommonChecks.HomepageHTML`
+- Reused by CMS-specific scans, eliminating duplicate HTTP request
+
+**Pingback Behavior:**
+- `--server` flag no longer required for WordPress scans
+- If XML-RPC is enabled but `--server` not provided, report shows `"Pingback available - use --server flag to test"`
+- If `--server` provided, pingback test is sent as before
+
+### Bug Fixes
+
+**Drupal OSV API:**
+- Fixed `version` parameter being set to module slug (e.g., "ctools") instead of actual version — OSV API returned no results for modules/themes
+- Modules and themes now queried without a version, returning all known vulnerabilities
+
+**Drupal Vulnerability IDs:**
+- Added fallback to OSV advisory IDs (`DRUPAL-CONTRIB-*`) when no CVEs are present in `aliases` field
+- Drupal contrib modules use advisory IDs, not CVEs — previously all module vulns were silently dropped
+
+**Drupal Vulnerability Titles:**
+- Fixed empty vulnerability titles — OSV response uses `details` not `summary`
+- Titles now fall back to `details` field and truncate to 80 characters
+
+**Drupal Duplicate Vulnerabilities:**
+- Removed duplicate display of module/theme vulnerabilities under core "Version:" heading
+- Module vulns now only appear under their respective module entry (e.g., `ctools (Vulnerable)`)
+
+**Output Formatting:**
+- Status lines (Scanning, CMS detected, etc.) now stack vertically with no blank lines between them
+- Blank line separator added before the report
+
+### Command Line Flags (Updated)
+- `--url <URL>`: Target URL (required)
+- `--output <filename>`: Save report to file (optional)
+- `--all-plugins`: Scan all plugins (default: top 10)
+- `--all-modules`: Scan all modules (default: top 10)
+- `--server <url>`: Pingback test server (optional, WordPress only)
+- `--help`: Show usage information
+- `--cms`: **Removed** — CMS type is now auto-detected
+
+### Files Modified
+- `internal/scanner/recon.go` — Added `CMSDetected`, `HomepageHTML` fields; added `DetectCMS()` method
+- `internal/scanner/drupal.go` — Added `homeHTML` parameter; fixed OSV version param; added advisory ID fallback; added `details` title fallback; removed duplicate global vulnerability append
+- `internal/scanner/wordpress.go` — Added `homeHTML` parameter; changed pingback to report availability without `--server`
+- `cmd/goCmsCheck/main.go` — Removed `--cms` flag and validation; uses `commonChecks.CMSDetected`; updated status line formatting
+- `README.md` — Updated usage and examples for auto-detection
+- `CHANGELOG` — Updated with new version entry
+
+### Testing
+- Tested CMS detection against WordPress target: `https://www.armourinfosec.test`
+- Tested CMS detection against Drupal target: `http://drupal.test`
+- Verified Drupal module vulnerabilities now appear (ctools: DRUPAL-CONTRIB-2021-009, DRUPAL-CONTRIB-2021-015)
+- Verified no duplicate vulnerabilities under core "Version:" heading
+- Verified output formatting (tight status lines, blank line before report)
+- Verified `go build` and `go vet` pass with no errors
+
+---
+
+## v1.0.1
 
 ### New Features
 
@@ -82,20 +149,20 @@ GoCmsCheck is a CMS security scanner that supports WordPress and Drupal. This fi
 
 ### Usage Examples
 ```bash
-# WordPress scan (stdout only, colored)
-./goCmsCheck --url example.com --cms wordpress
+# Auto-detect CMS (stdout only, colored)
+./goCmsCheck --url example.com
 
-# WordPress scan with file output (plain text)
-./goCmsCheck --url example.com --cms wordpress --output wp_report.txt
+# Scan with file output (plain text)
+./goCmsCheck --url example.com --output report.txt
 
-# Drupal scan (stdout only, colored)
-./goCmsCheck --url example.com --cms drupal
+# Full module scan (Drupal)
+./goCmsCheck --url example.com --all-modules --output report.txt
 
-# Drupal scan with file output (plain text)
-./goCmsCheck --url example.com --cms drupal --output drupal_report.txt
+# Full plugin scan (WordPress)
+./goCmsCheck --url example.com --all-plugins --output report.txt
 
-# Full module scan
-./goCmsCheck --url example.com --cms drupal --all-modules --output report.txt
+# Pingback test (WordPress)
+./goCmsCheck --url example.com --server https://myserver.com/pingback
 ```
 
 ### Files Modified/Created
@@ -136,12 +203,13 @@ GoCmsCheck is a CMS security scanner that supports WordPress and Drupal. This fi
 
 **Build:** `go build -o goCmsCheck ./cmd/goCmsCheck`
 
-**Test WordPress:** `./goCmsCheck --url example.com --cms wordpress --output wp_report.txt`
+**Test WordPress:** `./goCmsCheck --url example.com --output wp_report.txt`
 
-**Test Drupal:** `./goCmsCheck --url http://drupal.test --cms drupal --output drupal_report.txt`
+**Test Drupal:** `./goCmsCheck --url http://drupal.test --all-modules --output drupal_report.txt`
 
 **Color scheme:** Bold cyan (section headers), bold (labels), normal (data)
 **Color library:** github.com/fatih/color v1.18.0 (go-colorable, go-isatty, golang.org/x/sys)
 **Rate limiting:** 5 requests/second global limit
 **Default output:** None (stdout only, use --output to save to file)
 **Output modes:** Stdout (colored) | File (plain text, ANSI codes stripped)
+**CMS detection:** Automatic (meta tags → HTML patterns → endpoint probe, WordPress priority)

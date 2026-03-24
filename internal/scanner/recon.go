@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -19,6 +20,8 @@ type CommonChecks struct {
 	EnvURL         string
 	EnvStatusCode  int
 	AdminEndpoints []Endpoint
+	CMSDetected    string
+	HomepageHTML   string
 }
 
 // Endpoint represents a discovered endpoint
@@ -182,5 +185,65 @@ func (hc *HTTPClient) RunCommonChecks(ctx context.Context, baseURL string) (*Com
 		checks.AdminEndpoints = adminEndpoints
 	}
 
+	// Detect CMS from homepage HTML
+	homeHTML, err := hc.FetchHomePageHTML(ctx, baseURL)
+	if err == nil {
+		checks.HomepageHTML = homeHTML
+		checks.CMSDetected = hc.DetectCMS(ctx, baseURL, homeHTML)
+	}
+
 	return checks, nil
+}
+
+// DetectCMS identifies the CMS type from homepage HTML and endpoint probes.
+// Returns "wordpress", "drupal", or "" if unknown.
+// WordPress takes priority when signals from both CMS types are present.
+func (hc *HTTPClient) DetectCMS(ctx context.Context, baseURL, html string) string {
+	wpConfirmed := false
+	drupalConfirmed := false
+
+	// 1. Check meta generator tags (near-definitive)
+	re := regexp.MustCompile(`(?i)<meta[^>]*name=["']generator["'][^>]*content=["']([^"']+)["']`)
+	matches := re.FindAllStringSubmatch(html, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			generator := match[1]
+			if strings.Contains(strings.ToLower(generator), "wordpress") {
+				return "wordpress"
+			}
+			if strings.Contains(strings.ToLower(generator), "drupal") {
+				return "drupal"
+			}
+		}
+	}
+
+	// 2. Check HTML path patterns (strong signal)
+	if strings.Contains(html, "/wp-content/") || strings.Contains(html, "/wp-includes/") {
+		wpConfirmed = true
+	}
+	if strings.Contains(html, "/sites/") && (strings.Contains(html, "/modules/") || strings.Contains(html, "/themes/")) {
+		drupalConfirmed = true
+	}
+
+	// 3. Endpoint probes (fallback)
+	if !wpConfirmed {
+		wpLoginURL := strings.TrimSuffix(baseURL, "/") + "/wp-login.php"
+		resp, err := hc.Get(ctx, wpLoginURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				wpConfirmed = true
+			}
+		}
+	}
+
+	// WordPress priority on ambiguous matches
+	if wpConfirmed {
+		return "wordpress"
+	}
+	if drupalConfirmed {
+		return "drupal"
+	}
+
+	return ""
 }

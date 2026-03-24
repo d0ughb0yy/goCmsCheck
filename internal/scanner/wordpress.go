@@ -73,7 +73,7 @@ func LoadBundledPlugins() []string {
 }
 
 // ScanWordPress performs all WordPress-specific scans
-func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverFlag string, scanAllPlugins bool) (*WordPressChecks, error) {
+func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverFlag string, scanAllPlugins bool, homeHTML string) (*WordPressChecks, error) {
 	checks := &WordPressChecks{}
 
 	// 1. Get WordPress Version
@@ -96,9 +96,13 @@ func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverF
 		checks.XmlRpcMethods = xmlRpcResult.Methods
 	}
 
-	// 4. Check Pingback (if server flag provided and XML-RPC is enabled)
-	if serverFlag != "" && checks.XmlRpcEnabled {
-		checks.PingbackCheck = hc.PerformPingbackCheck(ctx, baseURL, serverFlag)
+	// 4. Check Pingback
+	if checks.XmlRpcEnabled {
+		if serverFlag != "" {
+			checks.PingbackCheck = hc.PerformPingbackCheck(ctx, baseURL, serverFlag)
+		} else {
+			checks.PingbackCheck = PingbackResult{Enabled: true, Error: "Pingback available - use --server flag to test"}
+		}
 	}
 
 	// 5. Check bundled plugin list against WPVulnerability API
@@ -121,9 +125,8 @@ func (hc *HTTPClient) ScanWordPress(ctx context.Context, baseURL string, serverF
 		checks.Plugins = append(checks.Plugins, plugin)
 	}
 
-	// 6. Fetch homepage HTML for theme and dynamic plugin parsing
-	homeHTML, err := hc.FetchHomePageHTML(ctx, baseURL)
-	if err == nil {
+	// 6. Use cached homepage HTML for theme and dynamic plugin parsing
+	if homeHTML != "" {
 		// Extract and check theme
 		themeSlug := ExtractActiveTheme(homeHTML)
 		if themeSlug != "" {
