@@ -197,12 +197,15 @@ func (hc *HTTPClient) RunCommonChecks(ctx context.Context, baseURL string) (*Com
 
 // DetectCMS identifies the CMS type from homepage HTML and endpoint probes.
 // Returns "wordpress", "drupal", or "" if unknown.
-// WordPress takes priority when signals from both CMS types are present.
+// Detection priority: meta-generator > paths > endpoint probe
+// WordPress takes priority when signals from both CMS types are present (common in practice).
 func (hc *HTTPClient) DetectCMS(ctx context.Context, baseURL, html string) string {
 	wpConfirmed := false
 	drupalConfirmed := false
 
-	// 1. Check meta generator tags (near-definitive)
+	// Priority 1: Meta generator tag - most reliable indicator
+	// <meta name="generator" content="WordPress X.Y" /> or <meta name="generator" content="Drupal X.Y" />
+	// Direct CMS declaration in HTML head, rarely spoofed
 	re := regexp.MustCompile(`(?i)<meta[^>]*name=["']generator["'][^>]*content=["']([^"']+)["']`)
 	matches := re.FindAllStringSubmatch(html, -1)
 	for _, match := range matches {
@@ -217,7 +220,9 @@ func (hc *HTTPClient) DetectCMS(ctx context.Context, baseURL, html string) strin
 		}
 	}
 
-	// 2. Check HTML path patterns (strong signal)
+	// Priority 2: HTML path patterns - structural indicators
+	// WordPress: /wp-content/, /wp-includes/ (resource directories)
+	// Drupal: /sites/*/modules/, /sites/*/themes/ (multi-site structure)
 	if strings.Contains(html, "/wp-content/") || strings.Contains(html, "/wp-includes/") {
 		wpConfirmed = true
 	}
@@ -225,7 +230,9 @@ func (hc *HTTPClient) DetectCMS(ctx context.Context, baseURL, html string) strin
 		drupalConfirmed = true
 	}
 
-	// 3. Endpoint probes (fallback)
+	// Priority 3: Endpoint probe - fallback when HTML ambiguous
+	// Only probe WP (not Drupal) to avoid extra requests
+	// Drupal detection defaults to path patterns only
 	if !wpConfirmed {
 		wpLoginURL := strings.TrimSuffix(baseURL, "/") + "/wp-login.php"
 		resp, err := hc.Get(ctx, wpLoginURL)
@@ -237,7 +244,8 @@ func (hc *HTTPClient) DetectCMS(ctx context.Context, baseURL, html string) strin
 		}
 	}
 
-	// WordPress priority on ambiguous matches
+	// WordPress priority: if both detected, WP is more common and likely the primary CMS
+	// (some sites run WP + Drupal but show WP in generator tag)
 	if wpConfirmed {
 		return "wordpress"
 	}

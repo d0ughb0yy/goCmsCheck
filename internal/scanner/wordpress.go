@@ -250,7 +250,8 @@ func (hc *HTTPClient) CheckWpvulnerability(ctx context.Context, component string
 	}
 
 	var vulnerabilities []Vulnerability
-	// Parse the actual API response structure: data.vulnerability[]
+	// API returns: { "data": { "vulnerability": [ { "source": [ { "id": "CVE-XXXX" } ], "name": "..." } ] } }
+	// Extract all CVE ids from source array, then create one Vulnerability entry per CVE
 	if data, ok := result["data"].(map[string]interface{}); ok {
 		if vulns, ok := data["vulnerability"].([]interface{}); ok {
 			for _, v := range vulns {
@@ -261,7 +262,7 @@ func (hc *HTTPClient) CheckWpvulnerability(ctx context.Context, component string
 						for _, source := range sources {
 							if sourceMap, ok := source.(map[string]interface{}); ok {
 								id := getString(sourceMap, "id")
-								// Only include actual CVE identifiers
+								// Only include actual CVE identifiers (not internal tracking IDs)
 								if strings.HasPrefix(id, "CVE-") {
 									cves = append(cves, id)
 								}
@@ -270,6 +271,8 @@ func (hc *HTTPClient) CheckWpvulnerability(ctx context.Context, component string
 					}
 
 					// Create a vulnerability entry for each CVE found
+					// API doesn't provide severity directly, so we use "unknown"
+					// "name" field contains version info as "Fixed in: X.Y.Z"
 					for _, cve := range cves {
 						vuln := Vulnerability{
 							CVE:      cve,

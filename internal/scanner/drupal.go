@@ -241,6 +241,8 @@ func (hc *HTTPClient) CheckOsvVulnerability(ctx context.Context, component strin
 	}
 
 	var vulnerabilities []Vulnerability
+	// OSV API returns: { "vulns": [ { "id": "OSV-XXX", "aliases": ["CVE-XXXX"], "summary": "...", "details": "..." } ] }
+	// Extract CVE ids from aliases array, fallback to advisory ID if no CVE found
 	if vulns, ok := result["vulns"].([]interface{}); ok {
 		for _, v := range vulns {
 			if vulnMap, ok := v.(map[string]interface{}); ok {
@@ -256,14 +258,15 @@ func (hc *HTTPClient) CheckOsvVulnerability(ctx context.Context, component strin
 					}
 				}
 
-				// Fallback to OSV advisory ID if no CVEs found
+				// Fallback to OSV advisory ID if no CVEs found (some vulnerabilities don't have CVE assigned)
 				if len(cves) == 0 {
 					if id := getString(vulnMap, "id"); id != "" {
 						cves = append(cves, id)
 					}
 				}
 
-				// Create vulnerability entries for each CVE
+				// Extract title from summary or details, truncate long descriptions
+				// Create one Vulnerability entry per CVE identifier found
 				for _, cve := range cves {
 					title := getString(vulnMap, "summary")
 					if title == "" {

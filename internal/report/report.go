@@ -370,7 +370,10 @@ func (r *Report) Output(reportText string) error {
 	return nil
 }
 
-// stripANSICodes removes ANSI color codes from text for plain text output
+// stripANSICodes removes ANSI color codes from text for plain text file output.
+// ANSI escape sequences: ESC[<params>m (e.g., ESC[0m, ESC[1;34m)
+// Manual parsing avoids adding bytes.Trim Space dependency.
+// Algorithm: scan for ESC[ at position i, skip until 'm' terminator.
 func stripANSICodes(text string) string {
 	// Remove all ANSI escape sequences (starting with \033[)
 	var result strings.Builder

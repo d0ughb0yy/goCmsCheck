@@ -22,7 +22,8 @@ type HTTPClient struct {
 	client     *http.Client
 	limiter    *rate.Limiter
 	maxRetries int
-	retryDelay time.Duration
+	baseDelay time.Duration
+	maxDelay  time.Duration
 }
 
 // NewHTTPClient creates a new HTTPClient with rate limiting (5 req/s)
@@ -53,11 +54,14 @@ func NewHTTPClient() *HTTPClient {
 		client:     client,
 		limiter:    limiter,
 		maxRetries: 5,
-		retryDelay: 1 * time.Second,
+		baseDelay: 1 * time.Second,
+		maxDelay:  10 * time.Second,
 	}
 }
 
-// DoRequest performs an HTTP request with rate limiting and retry logic
+// DoRequest performs an HTTP request with rate limiting and retry logic.
+// Rate limiting: waits for global 5 req/s token bucket before sending.
+// Retry logic: exponential backoff on 5xx errors (1s->2s->4s->8s->10s capped), aborts on 429.
 func (hc *HTTPClient) DoRequest(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -71,32 +75,43 @@ func (hc *HTTPClient) DoRequest(ctx context.Context, method, url string, body io
 		return nil, fmt.Errorf("rate limiter error: %w", err)
 	}
 
-	// Retry logic
+	// Retry logic: exponential backoff on server errors (5xx)
+	// - attempt 0: original request
+	// - attempt 1-4: delay = min(baseDelay * 2^attempt, maxDelay)
+	// - attempt 5: max retries exceeded, return error
 	var lastErr error
 	for attempt := 0; attempt <= hc.maxRetries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(hc.retryDelay * time.Duration(attempt))
+			// Exponential backoff: baseDelay * 2^attempt, capped at maxDelay
+			delay := hc.baseDelay * time.Duration(1<<uint(attempt))
+			if delay > hc.maxDelay {
+				delay = hc.maxDelay
+			}
+			time.Sleep(delay)
 		}
 
 		resp, err := hc.client.Do(req)
 		if err != nil {
 			lastErr = err
-			continue
+			continue // Network error, retry
 		}
 
-		// Check for 429 (Too Many Requests) - abort immediately
+		// HTTP 429: server-side rate limiting detected, abort immediately
+		// This differs from 5xx retries as it indicates we should stop entirely
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
 			return nil, fmt.Errorf("rate limited (HTTP 429) - aborting")
 		}
 
-		// Check for server errors (5xx) - retry
+		// Server error (5xx): transient issue, retry with backoff
+		// Different from 429 as the server may recover
 		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
 			resp.Body.Close()
 			lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
 			continue
 		}
 
+		// Success (2xx/3xx) or client error (4xx): return immediately
 		return resp, nil
 	}
 
